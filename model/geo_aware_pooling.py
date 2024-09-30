@@ -20,6 +20,11 @@ class GeoAwarePooling(nn.Module):
             nn.Linear(channel_proj, 1, bias=False),
             nn.Sigmoid()
         )
+        self.pts_proj3 = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(channel_proj, 1, bias=False),
+            nn.Sigmoid()
+        )
 
     def norm_positions(self, xyz, point_masks):
         """
@@ -75,12 +80,17 @@ class GeoAwarePooling(nn.Module):
         norm_xyz = self.norm_positions(xyz, point_masks)
         
         local_xyz = self.pts_proj1(norm_xyz)  # [32, 4, 2048, 512]
+        # xyz_expand = xyz.transpose(1, 2).unsqueeze(1).repeat(1, V, 1, 1)  # [B, V, N, 3]
+        # local_xyz = self.pts_proj1(xyz_expand)
+        
         # Compute global feature per view by max pooling valid points, ignoring masked points
-        global_xyz, _ = local_xyz.max(dim=-2)  # [B, V, channel_proj]
-        global_xyz_N = global_xyz.unsqueeze(-2).repeat(1, 1, N, 1)  # [B, V, N, channel_proj]
-        cat_xyz = torch.cat([local_xyz, global_xyz_N], dim=-1)  # [B, V, N, 2 * channel_proj]
-        weights = self.pts_proj2(cat_xyz).squeeze(-1) * 2  # [B, V, N]
+        # global_xyz, _ = (local_xyz * point_masks.unsqueeze(-1)).max(dim=-2)  # [B, V, channel_proj]
+        # global_xyz_N = global_xyz.unsqueeze(-2).repeat(1, 1, N, 1)  # [B, V, N, channel_proj]
+        # cat_xyz = torch.cat([local_xyz, global_xyz_N], dim=-1)  # [B, V, N, 2 * channel_proj]
+        # weights = self.pts_proj2(cat_xyz).squeeze(-1) * 2  # [B, V, N]
+        
+        weights = self.pts_proj3(local_xyz).squeeze(-1) * 2  # [B, V, N]
         pooled_feature = (masked_features * weights.unsqueeze(-1)).sum(dim=-2)  # [B, V, emb_dim]
         
-        pooled_feature = pooled_feature / torch.clamp((point_masks * weights).sum(dim=-1, keepdim=True), min=1e-8) + global_xyz  # [B, V, emb_dim]
+        pooled_feature = pooled_feature / torch.clamp((point_masks * weights).sum(dim=-1, keepdim=True), min=1e-8)  # [B, V, emb_dim]
         return pooled_feature
