@@ -53,7 +53,8 @@ class PointSAM(nn.Module):
         self.text_resizer = nn.Sequential(nn.Linear(self.text_encoder.config.hidden_size, emb_dim, bias=True),
                                           nn.LayerNorm(emb_dim, eps=1e-12))
         if point_encoder == 'uni3d':
-            self.point_encoder = PointUni3d(self.emb_dim, self.normal_channel, self.additional_channel, self.N_p)
+            self.point_encoder = PointUni3d(self.n_groups, self.emb_dim, self.normal_channel, self.additional_channel, 
+                                            self.N_p, self.text_encoder, self.tokenizer, self.text_resizer)
         else:
             self.point_encoder = PointNet_Encoder(self.emb_dim, self.normal_channel, self.additional_channel, self.N_p)
         # self.pos1d = nn.Embedding(self.n_groups, self.emb_dim)
@@ -85,10 +86,11 @@ class PointSAM(nn.Module):
 
         B, C, N = xyz.size()
 
-        point_feature = self.point_encoder(xyz)     
+        # point_feature = self.point_encoder(xyz)
+        point_feature, t_feat, t_mask = self.point_encoder(xyz, list(text), xyz.device)      
 
         # fs = self.geo_pooling(xyz, point_feature, view_mask)
-        t_feat, t_mask = self.forward_text(list(text), xyz.device)  # [batch, q_len, d_model]
+        # t_feat, t_mask = self.forward_text(list(text), xyz.device)  # [batch, q_len, d_model]
         # query = self.view_transformer(xyz, point_feature, view_mask)
         query, query_mask = self.view_sampler(point_feature, view_mask, t_feat, t_mask, xyz)
         query = self.decoder(query, point_feature.transpose(-2, -1), tgt_key_padding_mask=query_mask, query_pos=self.pos3d)
